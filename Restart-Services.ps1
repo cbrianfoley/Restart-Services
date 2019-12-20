@@ -1,39 +1,64 @@
-﻿$Services = "VMMS","VSS"
+﻿# Restart-Services.ps1
+# restarts a list of services
+
+# this is intended to be used with Create-RestartServicesScheduledTask.ps1 script
+
+# powershell.exe -file C:\Windows\System32\WindowsPowerShell\v1.0\Scripts\Create-RestartServicesScheduledTask.ps1
+
+$Services = "VMMS","VSS" #edit this line to add/remove services
+
+$Error.Clear()
+Start-Transcript -Append -Path C:\Temp\Restart-Services.log
 
 foreach ($service in $Services){
     $servicestate = Get-Service $service -ErrorAction SilentlyContinue
-    if ($Error){
-        "$($service) service doesn't exist, or another error occured."
-        $Error.Clear()
-    }
+
     if ($servicestate.Status -eq 'Stopped'){
         try{
-            "$($service) service is stopped. Starting."
+            "$($service) service is Stopped. Starting."
             Start-Service $service -Verbose
+            continue
         }
         catch { 
-            "Error starting service. Attempting to use force"
+            "Error starting service."
         }
     }
     if ($servicestate.Status -eq 'Running'){
         "$($service) service is Running. Restarting."
         try{
-            Stop-Service $service -Verbose
+            Stop-Service $service -Force -Verbose
         }
         catch{
             "Error stopping. Attempting to use force."
-            Stop-Service $service -Force -Verbose
+            $process = Get-CimInstance win32_service -Filter "name like '$($service)'"
+            Stop-Process -Id $process.ProcessId -Force -PassThru -Verbose -ErrorAction SilentlyContinue
         }
         try{
-            Start-Service $service -Verbose
+            Start-Service $service -Verbose -ErrorAction SilentlyContinue
+            continue
         }
         catch{
             "Error starting service."
+            $Error
+            $Error.Clear()
+            continue
         }
     }
-    else {
-        "$($service) is $($servicestate). Attempting to restart using force."
-        Stop-Service $service -Force -Verbose
-        Start-Service $service
+    if ($Error){
+        "$($service) service threw an error."
+        $Error
+        $Error.Clear()
+        continue
     }
+    else {
+        "$($service) is $($servicestate.Status). Attempting to restart using force."
+        $process = Get-CimInstance win32_service -Filter "name like '$($service)'"
+        Stop-Process -Id $process.ProcessId -Force -PassThru -Verbose -ErrorAction SilentlyContinue
+        Start-Service $service -Verbose
+    }
+
 }
+
+Unregister-ScheduledTask -TaskName 'Restart-Services' -Confirm:$false -ErrorAction SilentlyContinue
+
+Stop-Transcript
